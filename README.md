@@ -8,7 +8,7 @@ Aplicación de chat nativa estilo WhatsApp para Android que funciona completamen
 
 El proyecto incluye un flujo de integración continua en [`.github/workflows/android.yml`](.github/workflows/android.yml) que automatiza todo el proceso:
 
-1. **Disparador:** Se activa automáticamente en cada `push` a la rama `main` (o manualmente desde la pestaña **Actions** con `workflow_dispatch`).
+1. **Disparador:** Se activa automáticamente en cada `push` a la rama `main` y en cada `pull_request` (o manualmente desde la pestaña **Actions** con `workflow_dispatch`). En los pull requests la APK queda disponible como *artifact* y no se publica una Release.
 2. **Compilación de Release:** Ejecuta `./gradlew assembleRelease`.
 3. **Firma Digital con Secretos:** Firma la APK utilizando los secretos configurados en tu repositorio de GitHub.
 4. **Publicación en Releases:** Crea una nueva versión en la sección **Releases** de GitHub con el archivo **`ChatMesh-release.apk`** listo para descargar e instalar.

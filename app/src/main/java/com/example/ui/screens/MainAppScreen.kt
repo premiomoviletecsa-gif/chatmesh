@@ -59,6 +59,7 @@ fun MainAppScreen(
     ) { _ ->
         viewModel.refreshContacts()
         viewModel.reloadSimDetails()
+        viewModel.onPermissionsGranted()
     }
 
     LaunchedEffect(Unit) {

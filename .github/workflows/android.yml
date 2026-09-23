@@ -4,6 +4,7 @@ on:
   push:
     branches:
       - main
+  pull_request:
   workflow_dispatch:
 
 permissions:
@@ -16,12 +17,10 @@ jobs:
 
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
 
       - name: Set up JDK 17
-        uses: actions/setup-java@v4
+        uses: actions/setup-java@de7274f081f381c8f8158605e0321c36c376e2e6 # v6.0.1
         with:
           distribution: 'temurin'
           java-version: '17'
@@ -34,7 +33,6 @@ jobs:
 
       - name: Prepare environment and Keystore
         run: |
-          # 1. Prepare .env file for secrets plugin
           if [ ! -f .env ]; then
             if [ -f .env.example ]; then
               cp .env.example .env
@@ -43,18 +41,13 @@ jobs:
             fi
           fi
 
-          # 2. Extract release keystore from repository secrets
           if [ -n "${{ secrets.KEYSTORE_BASE64 }}" ]; then
-            echo "Decoding KEYSTORE_BASE64 secret..."
             echo "${{ secrets.KEYSTORE_BASE64 }}" | base64 -d > "${GITHUB_WORKSPACE}/my-upload-key.jks"
           elif [ -n "${{ secrets.SIGNING_KEY }}" ]; then
-            echo "Decoding SIGNING_KEY secret..."
             echo "${{ secrets.SIGNING_KEY }}" | base64 -d > "${GITHUB_WORKSPACE}/my-upload-key.jks"
           elif [ -f debug.keystore.base64 ]; then
-            echo "Using base64 fallback keystore..."
             base64 -d debug.keystore.base64 > "${GITHUB_WORKSPACE}/my-upload-key.jks"
           else
-            echo "Generating fallback keystore for release..."
             keytool -genkey -v -keystore "${GITHUB_WORKSPACE}/my-upload-key.jks" \
               -storepass "${{ secrets.STORE_PASSWORD || 'android' }}" \
               -alias "${{ secrets.KEY_ALIAS || 'upload' }}" \
@@ -63,7 +56,6 @@ jobs:
               -dname "CN=ChatMesh,O=P2P,C=US"
           fi
 
-          # 3. Ensure Gradle wrapper execution rights
           chmod +x ./gradlew
 
       - name: Build Release APK
@@ -72,32 +64,29 @@ jobs:
           STORE_PASSWORD: ${{ secrets.STORE_PASSWORD || 'android' }}
           KEY_PASSWORD: ${{ secrets.KEY_PASSWORD || 'android' }}
           KEY_ALIAS: ${{ secrets.KEY_ALIAS || 'upload' }}
-        run: |
-          ./gradlew assembleRelease --stacktrace
+        run: ./gradlew assembleRelease --stacktrace
 
       - name: Locate and prepare APK
         run: |
           mkdir -p release-output
           RELEASE_APK=$(find app/build/outputs/apk/release -name "*.apk" | head -n 1)
-
           if [ -z "$RELEASE_APK" ]; then
             echo "Error: No release APK found!"
             exit 1
           fi
-
-          echo "Found release APK: $RELEASE_APK"
           cp "$RELEASE_APK" release-output/ChatMesh-release.apk
           cp "$RELEASE_APK" "release-output/ChatMesh-v1.0.${{ github.run_number }}.apk"
 
       - name: Upload APK as Artifact
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v4.3.0
         with:
-          name: ChatMesh-APK-Release
+          name: ChatMesh-APK-Release-${{ github.run_number }}
           path: release-output/*.apk
           retention-days: 30
 
       - name: Publish APK to GitHub Releases
-        uses: softprops/action-gh-release@v2
+        if: github.event_name != 'pull_request'
+        uses: softprops/action-gh-release@569deb874d08cd8cc0aa24af7c0b21160fe4b0e4 # v2.0.0
         with:
           tag_name: v1.0.${{ github.run_number }}
           name: "ChatMesh v1.0.${{ github.run_number }}"
@@ -106,18 +95,18 @@ jobs:
           generate_release_notes: true
           body: |
             ### 📱 ChatMesh Release APK (Build ${{ github.run_number }})
-            
+
             Compilación automática de la APK firmada generada a partir del commit `${{ github.sha }}` en la rama `main`.
-            
+
             #### 📥 Descarga de la APK:
             - **[ChatMesh-release.apk](https://github.com/${{ github.repository }}/releases/download/v1.0.${{ github.run_number }}/ChatMesh-release.apk)**
-            
+
             #### ✨ Características:
-            - 📶 **Red en Malla P2P:** Funciona 100% sin Internet mediante WiFi Direct y WiFi Aware.
-            - 📇 **SSID Automático:** Creado a partir del número de la SIM activa (`ChatMesh_+...`).
-            - 💬 **Chat Estilo WhatsApp:** Mensajes de texto, fotos, notas de voz con reproductor y archivos.
-            - 📞 **Llamadas y Videollamadas P2P:** Comunicación cifrada directa entre nodos.
-            - 🗄️ **Base de datos Room:** Sincronización descentralizada y soporte Store & Forward.
+            - 📶 Red en Malla P2P
+            - 📇 SSID Automático
+            - 💬 Chat estilo WhatsApp
+            - 📞 Llamadas y videollamadas P2P
+            - 🗄️ Base de datos Room
           files: release-output/*.apk
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

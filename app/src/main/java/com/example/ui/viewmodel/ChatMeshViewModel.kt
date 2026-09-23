@@ -106,6 +106,10 @@ class ChatMeshViewModel(application: Application) : AndroidViewModel(application
         }
     }
 
+    fun onPermissionsGranted() {
+        meshEngine.onPermissionsGranted()
+    }
+
     fun reloadSimDetails() {
         val sim = SimDetectionUtil.getRealSimDetails(getApplication())
         _realSimDetails.value = sim

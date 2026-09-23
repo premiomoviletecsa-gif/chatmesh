@@ -118,11 +118,22 @@ fun MeshNodesTab(
                                 color = MaterialTheme.colorScheme.onSurface
                             )
                             Text(
-                                text = if (engineState.isWifiDirectActive) "Enlace WiFi Direct ACTIVO" else "Iniciando WiFi Direct...",
+                                text = when {
+                                    engineState.isGroupFormed -> "Grupo P2P formado"
+                                    engineState.isWifiDirectActive -> "Enlace WiFi Direct ACTIVO"
+                                    else -> "Iniciando WiFi Direct..."
+                                },
                                 fontSize = 12.sp,
                                 color = if (engineState.isWifiDirectActive) Color(0xFF008069) else Color.Gray,
                                 fontWeight = FontWeight.SemiBold
                             )
+                            if (engineState.p2pStatusMessage.isNotBlank()) {
+                                Text(
+                                    text = engineState.p2pStatusMessage,
+                                    fontSize = 11.sp,
+                                    color = if (engineState.hasNearbyDevicesPermission) Color.Gray else Color(0xFFB00020)
+                                )
+                            }
                         }
                     }
 
@@ -207,7 +218,7 @@ fun MeshNodesTab(
                         Column(horizontalAlignment = Alignment.End) {
                             Text(text = "IP Local P2P", fontSize = 11.sp, color = Color.Gray)
                             Text(
-                                text = engineState.localIpAddress,
+                                text = engineState.localIpAddress.ifEmpty { "sin asignar" },
                                 fontSize = 12.sp,
                                 fontFamily = FontFamily.Monospace,
                                 fontWeight = FontWeight.SemiBold

@@ -11,30 +11,35 @@ permissions:
 
 jobs:
   build-and-release:
-    name: Build & Release APK
+    name: Build and Release APK
     runs-on: ubuntu-latest
 
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
         with:
           fetch-depth: 0
 
       - name: Set up JDK 17
-        uses: actions/setup-java@v4
+        uses: actions/setup-java@1a4442cacd436585916779262731d5b162bc6ec7 # v4.7.1
         with:
-          distribution: 'temurin'
-          java-version: '17'
-          cache: 'gradle'
+          distribution: temurin
+          java-version: "17"
+          cache: gradle
 
-      - name: Accept Android SDK Licenses
+      - name: Accept Android SDK licenses
+        shell: bash
         run: |
-          yes | "${ANDROID_HOME}/cmdline-tools/latest/bin/sdkmanager" --licenses || true
-          yes | "${ANDROID_HOME}/tools/bin/sdkmanager" --licenses || true
+          yes | "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" --licenses || true
+          if [ -x "$ANDROID_HOME/tools/bin/sdkmanager" ]; then
+            yes | "$ANDROID_HOME/tools/bin/sdkmanager" --licenses || true
+          fi
 
-      - name: Prepare environment and Keystore
+      - name: Prepare environment and signing keystore
+        shell: bash
         run: |
-          # 1. Prepare .env file for secrets plugin
+          set -e
+
           if [ ! -f .env ]; then
             if [ -f .env.example ]; then
               cp .env.example .env
@@ -43,81 +48,86 @@ jobs:
             fi
           fi
 
-          # 2. Extract release keystore from repository secrets
           if [ -n "${{ secrets.KEYSTORE_BASE64 }}" ]; then
-            echo "Decoding KEYSTORE_BASE64 secret..."
-            echo "${{ secrets.KEYSTORE_BASE64 }}" | base64 -d > "${GITHUB_WORKSPACE}/my-upload-key.jks"
+            echo "Decoding KEYSTORE_BASE64..."
+            echo "${{ secrets.KEYSTORE_BASE64 }}" | base64 --decode \
+              > "$GITHUB_WORKSPACE/my-upload-key.jks"
+
           elif [ -n "${{ secrets.SIGNING_KEY }}" ]; then
-            echo "Decoding SIGNING_KEY secret..."
-            echo "${{ secrets.SIGNING_KEY }}" | base64 -d > "${GITHUB_WORKSPACE}/my-upload-key.jks"
-          elif [ -f debug.keystore.base64 ]; then
-            echo "Using base64 fallback keystore..."
-            base64 -d debug.keystore.base64 > "${GITHUB_WORKSPACE}/my-upload-key.jks"
+            echo "Decoding SIGNING_KEY..."
+            echo "${{ secrets.SIGNING_KEY }}" | base64 --decode \
+              > "$GITHUB_WORKSPACE/my-upload-key.jks"
+
           else
-            echo "Generating fallback keystore for release..."
-            keytool -genkey -v -keystore "${GITHUB_WORKSPACE}/my-upload-key.jks" \
+            echo "Generating temporary release keystore..."
+            keytool -genkeypair -v \
+              -keystore "$GITHUB_WORKSPACE/my-upload-key.jks" \
               -storepass "${{ secrets.STORE_PASSWORD || 'android' }}" \
-              -alias "${{ secrets.KEY_ALIAS || 'upload' }}" \
               -keypass "${{ secrets.KEY_PASSWORD || 'android' }}" \
-              -keyalg RSA -keysize 2048 -validity 10000 \
+              -alias "${{ secrets.KEY_ALIAS || 'upload' }}" \
+              -keyalg RSA \
+              -keysize 2048 \
+              -validity 10000 \
               -dname "CN=ChatMesh,O=P2P,C=US"
           fi
 
-          # 3. Ensure Gradle wrapper execution rights
           chmod +x ./gradlew
 
-      - name: Build Release APK
+      - name: Build release APK
         env:
           KEYSTORE_PATH: ${{ github.workspace }}/my-upload-key.jks
           STORE_PASSWORD: ${{ secrets.STORE_PASSWORD || 'android' }}
-          KEY_PASSWORD: ${{ secrets.KEY_PASSWORD || 'android' }}
-          KEY_ALIAS: ${{ secrets.KEY_ALIAS || 'upload' }}
+          KEY_PASSWORD: ${{ secrets.KEY_PASSWORD || 'android'upload' }}
         run: |
-          ./gradlew assembleRelease --stacktrace
+          ./gradlew clean assembleRelease --stacktrace
 
-      - name: Locate and prepare APK
+      - name: Prepare APK files
+        shell: bash
         run: |
+          set -e
+
           mkdir -p release-output
-          RELEASE_APK=$(find app/build/outputs/apk/release -name "*.apk" | head -n 1)
 
-          if [ -z "$RELEASE_APK" ]; then
-            echo "Error: No release APK found!"
+          APK_PATH="$(find app/build/outputs/apk/release \
+            -type f \
+            -name '*.apk' \
+            | head -n 1)"
+
+          if [ -z "$APK_PATH" ]; then
+            echo "Error: No se encontró ninguna APK."
             exit 1
           fi
 
-          echo "Found release APK: $RELEASE_APK"
-          cp "$RELEASE_APK" release-output/ChatMesh-release.apk
-          cp "$RELEASE_APK" "release-output/ChatMesh-v1.0.${{ github.run_number }}.apk"
+          echo "APK encontrada: $APK_PATH"
 
-      - name: Upload APK as Artifact
-        uses: actions/upload-artifact@v4
+          cp "$APK_PATH" release-output/ChatMesh-release.apk
+          cp "$APK_PATH" \
+            "release-output/ChatMesh-v1.0.${{ github.run_number }}.apk"
+
+          sha256sum release-output/*.apk > release-output/SHA256SUMS.txt
+
+          echo "Archivos generados:"
+          ls -lh release-output/
+
+      - name: Upload APK artifact
+        uses: actions/upload-artifact@65c4c4a1ddee5b72f698fdd19549f0f0fb45cf08 # v4.6.0
         with:
-          name: ChatMesh-APK-Release
-          path: release-output/*.apk
+          name: ChatMesh-APK-Release-${{ github.run_number }}
+          path: release-output/
+          if-no-files-found: error
           retention-days: 30
 
-      - name: Publish APK to GitHub Releases
-        uses: softprops/action-gh-release@v2
-        with:
-          tag_name: v1.0.${{ github.run_number }}
-          name: "ChatMesh v1.0.${{ github.run_number }}"
-          draft: false
-          prerelease: false
-          generate_release_notes: true
-          body: |
-            ### 📱 ChatMesh Release APK (Build ${{ github.run_number }})
-            
-            Compilación automática de la APK firmada generada a partir del commit `${{ github.sha }}` en la rama `main`.
-            
-            #### 📥 Descarga de la APK:
-            - **[ChatMesh-release.apk](https://github.com/${{ github.repository }}/releases/download/v1.0.${{ github.run_number }}/ChatMesh-release.apk)**
-            
-            #### ✨ Características:
-            - 📶 **Red en Malla P2P:** Funciona 100% sin Internet mediante WiFi Direct y WiFi Aware.
-            - 📇 **SSID Automático:** Creado a partir del número de la SIM activa (`ChatMesh_+...`).
-            - 💬 **Chat Estilo WhatsApp:** Mensajes de texto, fotos, notas de voz con reproductor y archivos.
-            - 📞 **Llamadas y Videollamadas P2P:** Comunicación cifrada directa entre nodos.
-            - 🗄️ **Base de datos Room:** Sincronización descentralizada y soporte Store & Forward.
-          files: release-output/*.apk
+      - name: Publish APK as GitHub Release
         env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_TOKEN: ${{ github.token }}
+          TAG_NAME: v1.0.${{ github.run_number }}
+        shell: bash
+        run: |
+          gh release create "$TAG_NAME" \
+            release-output/ChatMesh-release.apk \
+            "release-output/ChatMesh-v1.0.${{ github.run_number }}.apk" \
+            release-output/SHA256SUMS.txt \
+            --repo "${{ github.repository }}" \
+            --title "ChatMesh $TAG_NAME" \
+            --generate-notes \
+            --notes "APK de ChatMesh generada desde el commit ${{ github.sha }}."
